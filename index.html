@@ -47,10 +47,21 @@
       <header class="toolbar" aria-label="Drawing tools">
         <button id="toggleSidebarButton" class="icon-button sidebar-toggle" type="button" aria-label="Toggle notes sidebar">☰</button>
 
+        <div class="tool-group tool-picker" role="group" aria-label="Tool">
+          <button id="penToolButton" class="tool-button active" type="button" aria-label="Pen tool" title="Pen">✎</button>
+          <button id="eraserToolButton" class="tool-button" type="button" aria-label="Eraser tool" title="Eraser">⌫</button>
+        </div>
+
         <div class="tool-group">
           <label for="penSizeInput">Pen</label>
           <input id="penSizeInput" type="range" min="1" max="36" value="5" />
           <output id="penSizeOutput" for="penSizeInput">5 px</output>
+        </div>
+
+        <div class="tool-group">
+          <label for="eraserSizeInput">Eraser</label>
+          <input id="eraserSizeInput" type="range" min="4" max="80" value="24" />
+          <output id="eraserSizeOutput" for="eraserSizeInput">24 px</output>
         </div>
 
         <div class="tool-group color-group">
@@ -59,10 +70,18 @@
           <input id="hexColorInput" class="hex-input" type="text" value="#000000" inputmode="text" spellcheck="false" aria-label="Hex pen color" />
         </div>
 
+        <div class="tool-group zoom-group" role="group" aria-label="Zoom controls">
+          <button id="zoomOutButton" class="icon-button" type="button" aria-label="Zoom out" title="Zoom out">−</button>
+          <output id="zoomOutput" aria-label="Current zoom">100%</output>
+          <button id="zoomInButton" class="icon-button" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+          <button id="resetZoomButton" class="icon-button" type="button" aria-label="Reset zoom" title="Reset zoom">⟲</button>
+        </div>
+
         <div class="tool-group buttons-group">
-          <button id="undoButton" type="button">Undo</button>
-          <button id="clearPageButton" type="button">Clear page</button>
-          <button id="saveNowButton" type="button">Save</button>
+          <button id="undoButton" class="icon-button" type="button" aria-label="Undo" title="Undo">↶</button>
+          <button id="redoButton" class="icon-button" type="button" aria-label="Redo" title="Redo">↷</button>
+          <button id="clearPageButton" type="button">Clear</button>
+          <button id="saveNowButton" class="icon-button" type="button" aria-label="Save" title="Save">💾</button>
         </div>
       </header>
 

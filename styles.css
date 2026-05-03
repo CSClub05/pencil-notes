@@ -44,8 +44,13 @@ button:active {
   transform: scale(0.98);
 }
 
+button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
 button.primary,
-button:hover {
+button:hover:not(:disabled) {
   border-color: #b7c7f8;
 }
 
@@ -216,6 +221,8 @@ h1 {
   width: 44px;
   padding-inline: 0;
   font-size: 1.1rem;
+  display: inline-grid;
+  place-items: center;
 }
 
 .tool-group {
@@ -229,13 +236,37 @@ h1 {
   border-radius: 999px;
 }
 
+.tool-picker {
+  gap: 0.35rem;
+}
+
+.tool-button {
+  width: 44px;
+  min-height: 38px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  font-size: 1.15rem;
+}
+
+.tool-button.active {
+  background: var(--ink);
+  color: white;
+  border-color: var(--ink);
+}
+
 .tool-group input[type="range"] {
-  width: min(190px, 22vw);
+  width: min(160px, 18vw);
 }
 
 .tool-group output {
   color: var(--muted);
   min-width: 48px;
+  text-align: center;
+}
+
+.zoom-group output {
+  min-width: 56px;
 }
 
 input[type="color"] {
