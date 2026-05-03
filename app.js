@@ -4,7 +4,6 @@ const STORE_NAME = "notes";
 const CURRENT_NOTE_KEY = "pencil-notes-current-note";
 
 const canvas = document.getElementById("drawingCanvas");
-const canvasWrap = document.getElementById("canvasWrap");
 const ctx = canvas.getContext("2d");
 
 const notesList = document.getElementById("notesList");
@@ -17,14 +16,24 @@ const noteTitleInput = document.getElementById("noteTitleInput");
 const saveStatus = document.getElementById("saveStatus");
 const saveNowButton = document.getElementById("saveNowButton");
 const undoButton = document.getElementById("undoButton");
+const redoButton = document.getElementById("redoButton");
 const clearPageButton = document.getElementById("clearPageButton");
 const toggleSidebarButton = document.getElementById("toggleSidebarButton");
 const sidebar = document.getElementById("sidebar");
 
+const penToolButton = document.getElementById("penToolButton");
+const eraserToolButton = document.getElementById("eraserToolButton");
 const penSizeInput = document.getElementById("penSizeInput");
 const penSizeOutput = document.getElementById("penSizeOutput");
+const eraserSizeInput = document.getElementById("eraserSizeInput");
+const eraserSizeOutput = document.getElementById("eraserSizeOutput");
 const colorPickerInput = document.getElementById("colorPickerInput");
 const hexColorInput = document.getElementById("hexColorInput");
+
+const zoomOutButton = document.getElementById("zoomOutButton");
+const zoomInButton = document.getElementById("zoomInButton");
+const resetZoomButton = document.getElementById("resetZoomButton");
+const zoomOutput = document.getElementById("zoomOutput");
 
 let db;
 let notes = [];
@@ -33,10 +42,29 @@ let activePageIndex = 0;
 let activeStroke = null;
 let autosaveTimer = null;
 let lastPointerId = null;
+
+let activeTool = "pen";
+
 let currentPen = {
   color: "#000000",
   size: 5
 };
+
+let currentEraser = {
+  size: 24
+};
+
+let view = {
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0
+};
+
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 4;
+
+const activePointers = new Map();
+let gesture = null;
 
 function uid() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -59,7 +87,8 @@ function formatDate(value) {
 function blankPage() {
   return {
     id: uid(),
-    strokes: []
+    strokes: [],
+    redoStrokes: []
   };
 }
 
@@ -72,6 +101,27 @@ function createNote(title = "Untitled note") {
     updatedAt: timestamp,
     pages: [blankPage()]
   };
+}
+
+function normalizeNote(note) {
+  if (!Array.isArray(note.pages) || note.pages.length === 0) {
+    note.pages = [blankPage()];
+  }
+
+  for (const page of note.pages) {
+    if (!Array.isArray(page.strokes)) page.strokes = [];
+    if (!Array.isArray(page.redoStrokes)) page.redoStrokes = [];
+
+    for (const stroke of page.strokes) {
+      if (!stroke.kind) stroke.kind = "pen";
+    }
+
+    for (const stroke of page.redoStrokes) {
+      if (!stroke.kind) stroke.kind = "pen";
+    }
+  }
+
+  return note;
 }
 
 function getActiveNote() {
@@ -157,7 +207,7 @@ function scheduleAutosave() {
 }
 
 async function loadInitialNotes() {
-  notes = await getAllNotes();
+  notes = (await getAllNotes()).map(normalizeNote);
   notes.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 
   if (notes.length === 0) {
@@ -182,6 +232,8 @@ function renderAll() {
   resizeCanvasToDisplaySize();
   redrawCanvas();
   updateButtons();
+  updateToolButtons();
+  updateZoomOutput();
 }
 
 function renderNotesList() {
@@ -204,6 +256,7 @@ function renderNotesList() {
       activePageIndex = 0;
       localStorage.setItem(CURRENT_NOTE_KEY, note.id);
       noteTitleInput.value = note.title || "Untitled note";
+      resetZoom();
       renderAll();
       if (window.innerWidth < 780) {
         sidebar.classList.add("collapsed");
@@ -237,8 +290,18 @@ function updateButtons() {
   const page = getActivePage();
   const note = getActiveNote();
   undoButton.disabled = !page || page.strokes.length === 0;
+  redoButton.disabled = !page || page.redoStrokes.length === 0;
   clearPageButton.disabled = !page || page.strokes.length === 0;
   deleteNoteButton.disabled = !note || notes.length <= 1;
+}
+
+function updateToolButtons() {
+  penToolButton.classList.toggle("active", activeTool === "pen");
+  eraserToolButton.classList.toggle("active", activeTool === "eraser");
+}
+
+function updateZoomOutput() {
+  zoomOutput.textContent = `${Math.round(view.scale * 100)}%`;
 }
 
 function resizeCanvasToDisplaySize() {
@@ -250,13 +313,25 @@ function resizeCanvasToDisplaySize() {
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
     canvas.height = height;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 }
 
+function applyDrawingTransform() {
+  const dpr = Math.max(window.devicePixelRatio || 1, 1);
+  ctx.setTransform(
+    dpr * view.scale,
+    0,
+    0,
+    dpr * view.scale,
+    dpr * view.offsetX,
+    dpr * view.offsetY
+  );
+}
+
 function clearCanvas() {
-  const rect = canvas.getBoundingClientRect();
-  ctx.clearRect(0, 0, rect.width, rect.height);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  applyDrawingTransform();
 }
 
 function redrawCanvas() {
@@ -274,40 +349,68 @@ function redrawCanvas() {
 function drawStroke(stroke) {
   if (!stroke.points || stroke.points.length === 0) return;
 
+  const kind = stroke.kind || "pen";
+  const isEraser = kind === "eraser";
+
+  ctx.save();
+  ctx.globalCompositeOperation = isEraser ? "destination-out" : "source-over";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = isEraser ? "rgba(0, 0, 0, 1)" : stroke.color;
+  ctx.fillStyle = isEraser ? "rgba(0, 0, 0, 1)" : stroke.color;
+
   if (stroke.points.length === 1) {
     const point = stroke.points[0];
     ctx.beginPath();
-    ctx.fillStyle = stroke.color;
-    ctx.arc(point.x, point.y, Math.max(0.5, getPointWidth(stroke.size, point.pressure) / 2), 0, Math.PI * 2);
+    ctx.arc(point.x, point.y, Math.max(0.5, getPointWidth(stroke, point.pressure) / 2), 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
     return;
   }
-
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.strokeStyle = stroke.color;
 
   for (let i = 1; i < stroke.points.length; i++) {
     const previous = stroke.points[i - 1];
     const current = stroke.points[i];
     ctx.beginPath();
-    ctx.lineWidth = getPointWidth(stroke.size, current.pressure);
+    ctx.lineWidth = getPointWidth(stroke, current.pressure);
     ctx.moveTo(previous.x, previous.y);
     ctx.lineTo(current.x, current.y);
     ctx.stroke();
   }
+
+  ctx.restore();
 }
 
-function getPointWidth(baseSize, pressure) {
+function getPointWidth(stroke, pressure) {
+  if ((stroke.kind || "pen") === "eraser") {
+    return Math.max(1, stroke.size);
+  }
+
   const safePressure = pressure && pressure > 0 ? pressure : 0.5;
-  return Math.max(0.5, baseSize * (0.35 + safePressure * 0.9));
+  return Math.max(0.5, stroke.size * (0.35 + safePressure * 0.9));
+}
+
+function clientToCanvasScreen(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: clientX - rect.left,
+    y: clientY - rect.top
+  };
+}
+
+function clientToPage(clientX, clientY) {
+  const screen = clientToCanvasScreen(clientX, clientY);
+  return {
+    x: (screen.x - view.offsetX) / view.scale,
+    y: (screen.y - view.offsetY) / view.scale
+  };
 }
 
 function getCanvasPoint(event) {
-  const rect = canvas.getBoundingClientRect();
+  const point = clientToPage(event.clientX, event.clientY);
   return {
-    x: event.clientX - rect.left,
-    y: event.clientY - rect.top,
+    x: point.x,
+    y: point.y,
     pressure: event.pressure && event.pressure > 0 ? event.pressure : 0.5,
     pointerType: event.pointerType || "unknown",
     t: Date.now()
@@ -315,16 +418,14 @@ function getCanvasPoint(event) {
 }
 
 function startStroke(event) {
-  if (event.button !== undefined && event.button !== 0) return;
-
   event.preventDefault();
   lastPointerId = event.pointerId;
-  canvas.setPointerCapture?.(event.pointerId);
 
   activeStroke = {
     id: uid(),
+    kind: activeTool,
     color: currentPen.color,
-    size: currentPen.size,
+    size: activeTool === "eraser" ? currentEraser.size : currentPen.size,
     points: [getCanvasPoint(event)]
   };
 
@@ -335,10 +436,10 @@ function continueStroke(event) {
   if (!activeStroke || event.pointerId !== lastPointerId) return;
   event.preventDefault();
 
-  const points = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [event];
+  const events = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [event];
   let previousPoint = activeStroke.points[activeStroke.points.length - 1];
 
-  for (const pointerEvent of points) {
+  for (const pointerEvent of events) {
     const point = getCanvasPoint(pointerEvent);
     activeStroke.points.push(point);
     drawStroke({
@@ -356,12 +457,176 @@ function finishStroke(event) {
   const page = getActivePage();
   if (page) {
     page.strokes.push(activeStroke);
+    page.redoStrokes = [];
   }
 
   activeStroke = null;
   lastPointerId = null;
   updateButtons();
   scheduleAutosave();
+}
+
+function getTouchPointers() {
+  return Array.from(activePointers.values()).filter(pointer => pointer.pointerType === "touch");
+}
+
+function distance(a, b) {
+  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+
+function midpoint(a, b) {
+  return {
+    clientX: (a.clientX + b.clientX) / 2,
+    clientY: (a.clientY + b.clientY) / 2
+  };
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function startPan(touch) {
+  gesture = {
+    type: "pan",
+    lastClientX: touch.clientX,
+    lastClientY: touch.clientY
+  };
+}
+
+function updatePan(touch) {
+  if (!gesture || gesture.type !== "pan") {
+    startPan(touch);
+    return;
+  }
+
+  view.offsetX += touch.clientX - gesture.lastClientX;
+  view.offsetY += touch.clientY - gesture.lastClientY;
+
+  gesture.lastClientX = touch.clientX;
+  gesture.lastClientY = touch.clientY;
+
+  redrawCanvas();
+}
+
+function startPinch(touches) {
+  const first = touches[0];
+  const second = touches[1];
+  const mid = midpoint(first, second);
+  const worldPoint = clientToPage(mid.clientX, mid.clientY);
+
+  gesture = {
+    type: "pinch",
+    startDistance: distance(first, second),
+    startScale: view.scale,
+    worldX: worldPoint.x,
+    worldY: worldPoint.y
+  };
+}
+
+function updatePinch(touches) {
+  if (!gesture || gesture.type !== "pinch") {
+    startPinch(touches);
+    return;
+  }
+
+  const first = touches[0];
+  const second = touches[1];
+  const mid = midpoint(first, second);
+  const screen = clientToCanvasScreen(mid.clientX, mid.clientY);
+
+  const nextScale = clamp(
+    gesture.startScale * (distance(first, second) / Math.max(1, gesture.startDistance)),
+    MIN_ZOOM,
+    MAX_ZOOM
+  );
+
+  view.scale = nextScale;
+  view.offsetX = screen.x - gesture.worldX * nextScale;
+  view.offsetY = screen.y - gesture.worldY * nextScale;
+
+  updateZoomOutput();
+  redrawCanvas();
+}
+
+function handleTouchGesture(event) {
+  event.preventDefault();
+
+  const touches = getTouchPointers();
+
+  if (touches.length >= 2) {
+    updatePinch(touches);
+  } else if (touches.length === 1) {
+    updatePan(touches[0]);
+  } else {
+    gesture = null;
+  }
+}
+
+function resetGestureAfterPointerEnd() {
+  const touches = getTouchPointers();
+
+  if (touches.length >= 2) {
+    startPinch(touches);
+  } else if (touches.length === 1) {
+    startPan(touches[0]);
+  } else {
+    gesture = null;
+  }
+}
+
+function canPointerDraw(event) {
+  if (event.pointerType === "touch") return false;
+  if (event.pointerType === "mouse") return event.button === 0 || event.buttons === 1;
+  return event.pointerType === "pen" || event.pointerType === "";
+}
+
+function handlePointerDown(event) {
+  activePointers.set(event.pointerId, {
+    pointerId: event.pointerId,
+    pointerType: event.pointerType || "",
+    clientX: event.clientX,
+    clientY: event.clientY
+  });
+
+  canvas.setPointerCapture?.(event.pointerId);
+
+  if (event.pointerType === "touch") {
+    handleTouchGesture(event);
+    return;
+  }
+
+  if (canPointerDraw(event)) {
+    startStroke(event);
+  }
+}
+
+function handlePointerMove(event) {
+  if (activePointers.has(event.pointerId)) {
+    activePointers.set(event.pointerId, {
+      pointerId: event.pointerId,
+      pointerType: event.pointerType || "",
+      clientX: event.clientX,
+      clientY: event.clientY
+    });
+  }
+
+  if (event.pointerType === "touch") {
+    handleTouchGesture(event);
+    return;
+  }
+
+  continueStroke(event);
+}
+
+function handlePointerEnd(event) {
+  if (event.pointerType !== "touch") {
+    finishStroke(event);
+  } else {
+    event.preventDefault();
+  }
+
+  activePointers.delete(event.pointerId);
+  resetGestureAfterPointerEnd();
 }
 
 function normalizeHex(value) {
@@ -379,10 +644,51 @@ function setColor(value) {
   return true;
 }
 
+function setTool(tool) {
+  activeTool = tool;
+  updateToolButtons();
+}
+
+function zoomAroundScreenPoint(nextScale, screenX, screenY) {
+  const worldX = (screenX - view.offsetX) / view.scale;
+  const worldY = (screenY - view.offsetY) / view.scale;
+
+  view.scale = clamp(nextScale, MIN_ZOOM, MAX_ZOOM);
+  view.offsetX = screenX - worldX * view.scale;
+  view.offsetY = screenY - worldY * view.scale;
+
+  updateZoomOutput();
+  redrawCanvas();
+}
+
+function zoomFromCenter(multiplier) {
+  const rect = canvas.getBoundingClientRect();
+  zoomAroundScreenPoint(
+    view.scale * multiplier,
+    rect.width / 2,
+    rect.height / 2
+  );
+}
+
+function resetZoom() {
+  view.scale = 1;
+  view.offsetX = 0;
+  view.offsetY = 0;
+  updateZoomOutput();
+  redrawCanvas();
+}
+
+penToolButton.addEventListener("click", () => setTool("pen"));
+eraserToolButton.addEventListener("click", () => setTool("eraser"));
+
 penSizeInput.addEventListener("input", () => {
   currentPen.size = Number(penSizeInput.value);
-  penSizeOutput.value = `${currentPen.size} px`;
   penSizeOutput.textContent = `${currentPen.size} px`;
+});
+
+eraserSizeInput.addEventListener("input", () => {
+  currentEraser.size = Number(eraserSizeInput.value);
+  eraserSizeOutput.textContent = `${currentEraser.size} px`;
 });
 
 colorPickerInput.addEventListener("input", () => {
@@ -404,21 +710,17 @@ hexColorInput.addEventListener("input", () => {
   }
 });
 
-canvas.addEventListener("pointerdown", startStroke);
-canvas.addEventListener("pointermove", continueStroke);
-canvas.addEventListener("pointerup", finishStroke);
-canvas.addEventListener("pointercancel", finishStroke);
-canvas.addEventListener("lostpointercapture", event => {
-  if (activeStroke && event.pointerId === lastPointerId) {
-    finishStroke(event);
-  }
-});
+canvas.addEventListener("pointerdown", handlePointerDown);
+canvas.addEventListener("pointermove", handlePointerMove);
+canvas.addEventListener("pointerup", handlePointerEnd);
+canvas.addEventListener("pointercancel", handlePointerEnd);
 
 addPageButton.addEventListener("click", () => {
   const note = getActiveNote();
   if (!note) return;
   note.pages.push(blankPage());
   activePageIndex = note.pages.length - 1;
+  resetZoom();
   renderPagesList();
   redrawCanvas();
   scheduleAutosave();
@@ -433,6 +735,7 @@ newNoteButton.addEventListener("click", async () => {
   noteTitleInput.value = note.title;
   await putNote(note);
   localStorage.setItem(CURRENT_NOTE_KEY, note.id);
+  resetZoom();
   renderAll();
   setStatus("Created a new note.");
 });
@@ -462,6 +765,7 @@ deleteNoteButton.addEventListener("click", async () => {
   activePageIndex = 0;
   localStorage.setItem(CURRENT_NOTE_KEY, activeNoteId);
   noteTitleInput.value = getActiveNote()?.title || "";
+  resetZoom();
   renderAll();
   setStatus("Deleted note.");
 });
@@ -469,7 +773,22 @@ deleteNoteButton.addEventListener("click", async () => {
 undoButton.addEventListener("click", () => {
   const page = getActivePage();
   if (!page || page.strokes.length === 0) return;
-  page.strokes.pop();
+
+  const stroke = page.strokes.pop();
+  page.redoStrokes.push(stroke);
+
+  redrawCanvas();
+  updateButtons();
+  scheduleAutosave();
+});
+
+redoButton.addEventListener("click", () => {
+  const page = getActivePage();
+  if (!page || page.redoStrokes.length === 0) return;
+
+  const stroke = page.redoStrokes.pop();
+  page.strokes.push(stroke);
+
   redrawCanvas();
   updateButtons();
   scheduleAutosave();
@@ -480,7 +799,10 @@ clearPageButton.addEventListener("click", () => {
   if (!page || page.strokes.length === 0) return;
   const confirmed = confirm("Clear this page?");
   if (!confirmed) return;
+
   page.strokes = [];
+  page.redoStrokes = [];
+
   redrawCanvas();
   updateButtons();
   scheduleAutosave();
@@ -492,6 +814,10 @@ saveNowButton.addEventListener("click", () => {
     setStatus("Could not save.");
   });
 });
+
+zoomOutButton.addEventListener("click", () => zoomFromCenter(0.8));
+zoomInButton.addEventListener("click", () => zoomFromCenter(1.25));
+resetZoomButton.addEventListener("click", resetZoom);
 
 toggleSidebarButton.addEventListener("click", () => {
   sidebar.classList.toggle("collapsed");
@@ -526,6 +852,9 @@ async function main() {
     await loadInitialNotes();
     setColor("#000000");
     penSizeOutput.textContent = `${currentPen.size} px`;
+    eraserSizeOutput.textContent = `${currentEraser.size} px`;
+    updateZoomOutput();
+    setStatus("Ready. Apple Pencil draws; fingers pan and pinch-zoom.");
     await registerServiceWorker();
   } catch (error) {
     console.error(error);

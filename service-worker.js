@@ -1,4 +1,4 @@
-const CACHE_NAME = "pencil-notes-v1";
+const CACHE_NAME = "pencil-notes-v2";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -25,6 +25,7 @@ self.addEventListener("activate", event => {
 
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
+
   event.respondWith(
     caches.match(event.request).then(cached => {
       return cached || fetch(event.request).then(response => {
