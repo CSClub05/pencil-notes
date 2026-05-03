@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f6f3ee" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Pencil Notes" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>Pencil Notes</title>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-row">
+        <div class="app-mark" aria-hidden="true">✎</div>
+        <div>
+          <h1>Pencil Notes</h1>
+          <p>Personal notebook</p>
+        </div>
+      </div>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Note files</h2>
+          <button class="small-button" id="newNoteButton" type="button">New</button>
+        </div>
+        <div id="notesList" class="notes-list" aria-label="Saved note files"></div>
+      </section>
+
+      <section class="panel note-actions">
+        <label for="noteTitleInput">Current note name</label>
+        <input id="noteTitleInput" class="text-input" type="text" placeholder="Untitled note" />
+        <button id="renameNoteButton" type="button">Rename note</button>
+        <button id="deleteNoteButton" class="danger-button" type="button">Delete note</button>
+      </section>
+
+      <section class="panel status-panel">
+        <h2>Status</h2>
+        <p id="saveStatus">Ready.</p>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <header class="toolbar" aria-label="Drawing tools">
+        <button id="toggleSidebarButton" class="icon-button sidebar-toggle" type="button" aria-label="Toggle notes sidebar">☰</button>
+
+        <div class="tool-group">
+          <label for="penSizeInput">Pen</label>
+          <input id="penSizeInput" type="range" min="1" max="36" value="5" />
+          <output id="penSizeOutput" for="penSizeInput">5 px</output>
+        </div>
+
+        <div class="tool-group color-group">
+          <label for="colorPickerInput">Color</label>
+          <input id="colorPickerInput" type="color" value="#000000" />
+          <input id="hexColorInput" class="hex-input" type="text" value="#000000" inputmode="text" spellcheck="false" aria-label="Hex pen color" />
+        </div>
+
+        <div class="tool-group buttons-group">
+          <button id="undoButton" type="button">Undo</button>
+          <button id="clearPageButton" type="button">Clear page</button>
+          <button id="saveNowButton" type="button">Save</button>
+        </div>
+      </header>
+
+      <section class="page-bar" aria-label="Pages">
+        <div id="pagesList" class="pages-list"></div>
+        <button id="addPageButton" class="add-page-button" type="button">+ Page</button>
+      </section>
+
+      <section class="canvas-wrap" id="canvasWrap">
+        <canvas id="drawingCanvas" aria-label="Blank note canvas"></canvas>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

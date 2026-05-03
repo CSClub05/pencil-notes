@@ -1,0 +1,11 @@
+{
+  "name": "Pencil Notes",
+  "short_name": "Pencil Notes",
+  "description": "A personal note-taking app with Apple Pencil-friendly canvas drawing.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f3ee",
+  "theme_color": "#f6f3ee",
+  "orientation": "any"
+}
