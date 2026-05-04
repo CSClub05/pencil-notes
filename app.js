@@ -2,6 +2,7 @@ const DB_NAME = "pencil-notes-db";
 const DB_VERSION = 1;
 const STORE_NAME = "notes";
 const CURRENT_NOTE_KEY = "pencil-notes-current-note";
+const FINGER_DRAW_KEY = "pencil-notes-finger-draw";
 
 const canvas = document.getElementById("drawingCanvas");
 const ctx = canvas.getContext("2d");
@@ -24,6 +25,7 @@ const sidebar = document.getElementById("sidebar");
 
 const penToolButton = document.getElementById("penToolButton");
 const eraserToolButton = document.getElementById("eraserToolButton");
+const fingerDrawInput = document.getElementById("fingerDrawInput");
 const penSizeInput = document.getElementById("penSizeInput");
 const penSizeOutput = document.getElementById("penSizeOutput");
 const eraserSizeInput = document.getElementById("eraserSizeInput");
@@ -43,6 +45,7 @@ let activePageIndex = 0;
 let activeStroke = null;
 let autosaveTimer = null;
 let lastPointerId = null;
+let fingerDrawEnabled = localStorage.getItem(FINGER_DRAW_KEY) === "true";
 
 let activeTool = "pen";
 
@@ -582,6 +585,12 @@ function canPointerDraw(event) {
   return event.pointerType === "pen" || event.pointerType === "";
 }
 
+function cancelActiveStroke() {
+  activeStroke = null;
+  lastPointerId = null;
+  redrawCanvas();
+}
+
 function handlePointerDown(event) {
   activePointers.set(event.pointerId, {
     pointerId: event.pointerId,
@@ -593,6 +602,17 @@ function handlePointerDown(event) {
   canvas.setPointerCapture?.(event.pointerId);
 
   if (event.pointerType === "touch") {
+    const touches = getTouchPointers();
+
+    if (fingerDrawEnabled && touches.length === 1) {
+      startStroke(event);
+      return;
+    }
+
+    if (activeStroke) {
+      cancelActiveStroke();
+    }
+
     handleTouchGesture(event);
     return;
   }
@@ -613,6 +633,22 @@ function handlePointerMove(event) {
   }
 
   if (event.pointerType === "touch") {
+    const touches = getTouchPointers();
+
+    if (
+      fingerDrawEnabled &&
+      touches.length === 1 &&
+      activeStroke &&
+      event.pointerId === lastPointerId
+    ) {
+      continueStroke(event);
+      return;
+    }
+
+    if (activeStroke && touches.length >= 2) {
+      cancelActiveStroke();
+    }
+
     handleTouchGesture(event);
     return;
   }
@@ -621,10 +657,14 @@ function handlePointerMove(event) {
 }
 
 function handlePointerEnd(event) {
-  if (event.pointerType !== "touch") {
-    finishStroke(event);
+  if (event.pointerType === "touch") {
+    if (fingerDrawEnabled && activeStroke && event.pointerId === lastPointerId) {
+      finishStroke(event);
+    } else {
+      event.preventDefault();
+    }
   } else {
-    event.preventDefault();
+    finishStroke(event);
   }
 
   activePointers.delete(event.pointerId);
@@ -649,6 +689,18 @@ function setColor(value) {
 function setTool(tool) {
   activeTool = tool;
   updateToolButtons();
+}
+
+function setFingerDrawEnabled(enabled) {
+  fingerDrawEnabled = enabled;
+  fingerDrawInput.checked = enabled;
+  localStorage.setItem(FINGER_DRAW_KEY, String(enabled));
+
+  setStatus(
+    enabled
+      ? "Finger drawing is on. One finger draws; two fingers pan and pinch-zoom."
+      : "Finger drawing is off. Apple Pencil/mouse draws; fingers pan and pinch-zoom."
+  );
 }
 
 function zoomAroundScreenPoint(nextScale, screenX, screenY) {
@@ -682,6 +734,9 @@ function resetZoom() {
 
 penToolButton.addEventListener("click", () => setTool("pen"));
 eraserToolButton.addEventListener("click", () => setTool("eraser"));
+fingerDrawInput.addEventListener("change", () => {
+  setFingerDrawEnabled(fingerDrawInput.checked);
+});
 
 penSizeInput.addEventListener("input", () => {
   currentPen.size = Number(penSizeInput.value);
@@ -874,10 +929,16 @@ async function main() {
     db = await openDb();
     await loadInitialNotes();
     setColor("#000000");
+    fingerDrawInput.checked = fingerDrawEnabled;
     penSizeOutput.textContent = `${currentPen.size} px`;
     eraserSizeOutput.textContent = `${currentEraser.size} px`;
     updateZoomOutput();
-    setStatus("Ready. Apple Pencil draws; fingers pan and pinch-zoom.");
+
+    setStatus(
+      fingerDrawEnabled
+        ? "Ready. Finger drawing is on; two fingers pan and pinch-zoom."
+        : "Ready. Apple Pencil/mouse draws; fingers pan and pinch-zoom."
+    );
     await registerServiceWorker();
   } catch (error) {
     console.error(error);
