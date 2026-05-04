@@ -326,7 +326,8 @@ input[type="color"] {
   border-color: var(--ink);
 }
 
-.add-page-button {
+.add-page-button,
+.delete-page-button {
   white-space: nowrap;
   min-height: 38px;
 }

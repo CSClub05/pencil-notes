@@ -1,4 +1,4 @@
-const CACHE_NAME = "pencil-notes-v3";
+const CACHE_NAME = "pencil-notes-v4";
 const CORE_ASSETS = [
   "./",
   "./index.html",

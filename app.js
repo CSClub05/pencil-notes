@@ -9,6 +9,7 @@ const ctx = canvas.getContext("2d");
 const notesList = document.getElementById("notesList");
 const pagesList = document.getElementById("pagesList");
 const addPageButton = document.getElementById("addPageButton");
+const deletePageButton = document.getElementById("deletePageButton");
 const newNoteButton = document.getElementById("newNoteButton");
 const renameNoteButton = document.getElementById("renameNoteButton");
 const deleteNoteButton = document.getElementById("deleteNoteButton");
@@ -293,6 +294,7 @@ function updateButtons() {
   redoButton.disabled = !page || page.redoStrokes.length === 0;
   clearPageButton.disabled = !page || page.strokes.length === 0;
   deleteNoteButton.disabled = !note || notes.length <= 1;
+  deletePageButton.disabled = !note || note.pages.length <= 1;
 }
 
 function updateToolButtons() {
@@ -724,6 +726,25 @@ addPageButton.addEventListener("click", () => {
   renderPagesList();
   redrawCanvas();
   scheduleAutosave();
+});
+
+deletePageButton.addEventListener("click", () => {
+  const note = getActiveNote();
+  if (!note || note.pages.length <= 1) return;
+
+  const pageNumber = activePageIndex + 1;
+  const confirmed = confirm(`Delete Page ${pageNumber}? This cannot be undone.`);
+  if (!confirmed) return;
+
+  note.pages.splice(activePageIndex, 1);
+  activePageIndex = Math.min(activePageIndex, note.pages.length - 1);
+
+  resetZoom();
+  renderPagesList();
+  redrawCanvas();
+  updateButtons();
+  scheduleAutosave();
+  setStatus(`Deleted Page ${pageNumber}.`);
 });
 
 newNoteButton.addEventListener("click", async () => {
