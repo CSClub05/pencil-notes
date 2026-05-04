@@ -487,22 +487,73 @@ function downloadDataUrl(dataUrl, filename) {
   link.remove();
 }
 
-async function exportCurrentPageAsPng() {
-  await saveActiveNote("Saved");
+function dataUrlToBlob(dataUrl) {
+  const [header, base64Data] = dataUrl.split(",");
+  const mimeMatch = header.match(/^data:(.*?);base64$/);
+  const mimeType = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+  const binary = atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
 
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return new Blob([bytes], { type: mimeType });
+}
+
+function isAppleTouchDevice() {
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+function canShareFile(file) {
+  return (
+    typeof navigator.share === "function" &&
+    typeof navigator.canShare === "function" &&
+    navigator.canShare({ files: [file] })
+  );
+}
+
+async function sharePngFile(file, note, pageNumber) {
+  await navigator.share({
+    files: [file],
+    title: note.title || "Pencil Notes",
+    text: `Page ${pageNumber} from ${note.title || "Pencil Notes"}`
+  });
+}
+
+async function exportCurrentPageAsPng() {
   const note = getActiveNote();
   const page = getActivePage();
   if (!note || !page) return;
 
+  const pageNumber = activePageIndex + 1;
+  const filename = `${safeFileName(note.title)}-page-${pageNumber}.png`;
   const exportCanvas = renderPageToExportCanvas(page, 2);
   const dataUrl = exportCanvas.toDataURL("image/png");
+  const pngFile = new File([dataUrlToBlob(dataUrl)], filename, { type: "image/png" });
 
-  downloadDataUrl(
-    dataUrl,
-    `${safeFileName(note.title)}-page-${activePageIndex + 1}.png`
-  );
+  if (isAppleTouchDevice() && canShareFile(pngFile)) {
+    try {
+      await sharePngFile(pngFile, note, pageNumber);
+      setStatus(`Opened iOS share sheet for Page ${pageNumber}. Choose Save Image to add it to Photos.`);
+      await saveActiveNote("Saved");
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        setStatus("PNG export cancelled.");
+        return;
+      }
 
-  setStatus(`Exported Page ${activePageIndex + 1} as PNG.`);
+      console.warn("Native image sharing failed; falling back to download.", error);
+    }
+  }
+
+  downloadDataUrl(dataUrl, filename);
+  await saveActiveNote("Saved");
+  setStatus(`Exported Page ${pageNumber} as PNG.`);
 }
 
 async function exportNoteAsPdf() {
