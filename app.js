@@ -848,6 +848,8 @@ async function registerServiceWorker() {
 
 async function main() {
   try {
+    installSafariGestureGuards();
+
     db = await openDb();
     await loadInitialNotes();
     setColor("#000000");
@@ -860,6 +862,32 @@ async function main() {
     console.error(error);
     setStatus("The app could not start. Check browser storage permissions.");
   }
+}
+
+function installSafariGestureGuards() {
+  let lastTouchEndTime = 0;
+
+  document.addEventListener("touchend", event => {
+    const now = Date.now();
+
+    if (now - lastTouchEndTime <= 350) {
+      event.preventDefault();
+    }
+
+    lastTouchEndTime = now;
+  }, { passive: false });
+
+  document.addEventListener("gesturestart", event => {
+    event.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener("gesturechange", event => {
+    event.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener("gestureend", event => {
+    event.preventDefault();
+  }, { passive: false });
 }
 
 main();
