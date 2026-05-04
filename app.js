@@ -17,6 +17,8 @@ const deleteNoteButton = document.getElementById("deleteNoteButton");
 const noteTitleInput = document.getElementById("noteTitleInput");
 const saveStatus = document.getElementById("saveStatus");
 const saveNowButton = document.getElementById("saveNowButton");
+const exportPngButton = document.getElementById("exportPngButton");
+const exportPdfButton = document.getElementById("exportPdfButton");
 const undoButton = document.getElementById("undoButton");
 const redoButton = document.getElementById("redoButton");
 const clearPageButton = document.getElementById("clearPageButton");
@@ -391,6 +393,204 @@ function drawStroke(stroke) {
   }
 
   ctx.restore();
+}
+
+function drawStrokeForExport(exportCtx, stroke) {
+  if (!stroke.points || stroke.points.length === 0) return;
+
+  const kind = stroke.kind || "pen";
+  const isEraser = kind === "eraser";
+
+  exportCtx.save();
+  exportCtx.globalCompositeOperation = isEraser ? "destination-out" : "source-over";
+  exportCtx.lineCap = "round";
+  exportCtx.lineJoin = "round";
+  exportCtx.strokeStyle = isEraser ? "rgba(0, 0, 0, 1)" : stroke.color;
+  exportCtx.fillStyle = isEraser ? "rgba(0, 0, 0, 1)" : stroke.color;
+
+  if (stroke.points.length === 1) {
+    const point = stroke.points[0];
+    exportCtx.beginPath();
+    exportCtx.arc(
+      point.x,
+      point.y,
+      Math.max(0.5, getPointWidth(stroke, point.pressure) / 2),
+      0,
+      Math.PI * 2
+    );
+    exportCtx.fill();
+    exportCtx.restore();
+    return;
+  }
+
+  for (let i = 1; i < stroke.points.length; i++) {
+    const previous = stroke.points[i - 1];
+    const current = stroke.points[i];
+
+    exportCtx.beginPath();
+    exportCtx.lineWidth = getPointWidth(stroke, current.pressure);
+    exportCtx.moveTo(previous.x, previous.y);
+    exportCtx.lineTo(current.x, current.y);
+    exportCtx.stroke();
+  }
+
+  exportCtx.restore();
+}
+
+function renderPageToExportCanvas(page, scale = 2) {
+  const rect = canvas.getBoundingClientRect();
+  const width = Math.max(1, Math.round(rect.width));
+  const height = Math.max(1, Math.round(rect.height));
+
+  const exportCanvas = document.createElement("canvas");
+  exportCanvas.width = width * scale;
+  exportCanvas.height = height * scale;
+
+  const exportCtx = exportCanvas.getContext("2d");
+  exportCtx.scale(scale, scale);
+
+  for (const stroke of page.strokes) {
+    drawStrokeForExport(exportCtx, stroke);
+  }
+
+  exportCtx.save();
+  exportCtx.globalCompositeOperation = "destination-over";
+  exportCtx.fillStyle = "#ffffff";
+  exportCtx.fillRect(0, 0, width, height);
+  exportCtx.restore();
+
+  return exportCanvas;
+}
+
+function safeFileName(value) {
+  return (value || "untitled-note")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "untitled-note";
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function downloadDataUrl(dataUrl, filename) {
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+async function exportCurrentPageAsPng() {
+  await saveActiveNote("Saved");
+
+  const note = getActiveNote();
+  const page = getActivePage();
+  if (!note || !page) return;
+
+  const exportCanvas = renderPageToExportCanvas(page, 2);
+  const dataUrl = exportCanvas.toDataURL("image/png");
+
+  downloadDataUrl(
+    dataUrl,
+    `${safeFileName(note.title)}-page-${activePageIndex + 1}.png`
+  );
+
+  setStatus(`Exported Page ${activePageIndex + 1} as PNG.`);
+}
+
+async function exportNoteAsPdf() {
+  await saveActiveNote("Saved");
+
+  const note = getActiveNote();
+  if (!note) return;
+
+  const exportWindow = window.open("", "_blank");
+
+  if (!exportWindow) {
+    setStatus("Allow pop-ups to export as PDF.");
+    return;
+  }
+
+  const rect = canvas.getBoundingClientRect();
+  const orientation = rect.width >= rect.height ? "landscape" : "portrait";
+
+  const pagesHtml = note.pages.map((page, index) => {
+    const dataUrl = renderPageToExportCanvas(page, 2).toDataURL("image/png");
+
+    return `
+      <section class="pdf-page">
+        <img src="${dataUrl}" alt="Page ${index + 1}">
+      </section>
+    `;
+  }).join("");
+
+  exportWindow.document.open();
+  exportWindow.document.write(`
+    <!doctype html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>${escapeHtml(note.title || "Exported note")}</title>
+      <style>
+        @page {
+          size: ${orientation};
+          margin: 0;
+        }
+
+        html,
+        body {
+          margin: 0;
+          padding: 0;
+          background: white;
+        }
+
+        .pdf-page {
+          width: 100vw;
+          height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          page-break-after: always;
+          break-after: page;
+          background: white;
+        }
+
+        .pdf-page:last-child {
+          page-break-after: auto;
+          break-after: auto;
+        }
+
+        img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          display: block;
+        }
+      </style>
+    </head>
+    <body>
+      ${pagesHtml}
+      <script>
+        window.addEventListener("load", () => {
+          setTimeout(() => {
+            window.focus();
+            window.print();
+          }, 250);
+        });
+      <\/script>
+    </body>
+    </html>
+  `);
+  exportWindow.document.close();
+
+  setStatus("Opened PDF export. Choose Save as PDF in the print dialog.");
 }
 
 function drawEraserPreview() {
@@ -937,6 +1137,20 @@ saveNowButton.addEventListener("click", () => {
   saveActiveNote("Saved").catch(error => {
     console.error(error);
     setStatus("Could not save.");
+  });
+});
+
+exportPngButton.addEventListener("click", () => {
+  exportCurrentPageAsPng().catch(error => {
+    console.error(error);
+    setStatus("Could not export PNG.");
+  });
+});
+
+exportPdfButton.addEventListener("click", () => {
+  exportNoteAsPdf().catch(error => {
+    console.error(error);
+    setStatus("Could not export PDF.");
   });
 });
 
