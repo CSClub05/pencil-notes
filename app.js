@@ -43,6 +43,7 @@ let notes = [];
 let activeNoteId = null;
 let activePageIndex = 0;
 let activeStroke = null;
+let eraserPreviewPoint = null;
 let autosaveTimer = null;
 let lastPointerId = null;
 let fingerDrawEnabled = localStorage.getItem(FINGER_DRAW_KEY) === "true";
@@ -349,6 +350,12 @@ function redrawCanvas() {
   for (const stroke of page.strokes) {
     drawStroke(stroke);
   }
+
+  if (activeStroke) {
+    drawStroke(activeStroke);
+  }
+
+  drawEraserPreview();
 }
 
 function drawStroke(stroke) {
@@ -382,6 +389,24 @@ function drawStroke(stroke) {
     ctx.lineTo(current.x, current.y);
     ctx.stroke();
   }
+
+  ctx.restore();
+}
+
+function drawEraserPreview() {
+  if (!eraserPreviewPoint || activeTool !== "eraser") return;
+
+  const radius = currentEraser.size / 2;
+
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.lineWidth = 1 / view.scale;
+  ctx.strokeStyle = "rgba(31, 35, 40, 0.75)";
+  ctx.setLineDash([4 / view.scale, 4 / view.scale]);
+
+  ctx.beginPath();
+  ctx.arc(eraserPreviewPoint.x, eraserPreviewPoint.y, radius, 0, Math.PI * 2);
+  ctx.stroke();
 
   ctx.restore();
 }
@@ -434,24 +459,40 @@ function startStroke(event) {
     points: [getCanvasPoint(event)]
   };
 
-  drawStroke(activeStroke);
+  if (activeStroke.kind === "eraser") {
+    eraserPreviewPoint = activeStroke.points[0];
+    redrawCanvas();
+  } else {
+    eraserPreviewPoint = null;
+    drawStroke(activeStroke);
+  }
 }
 
 function continueStroke(event) {
   if (!activeStroke || event.pointerId !== lastPointerId) return;
   event.preventDefault();
 
+  const isEraserStroke = activeStroke.kind === "eraser";
   const events = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [event];
   let previousPoint = activeStroke.points[activeStroke.points.length - 1];
 
   for (const pointerEvent of events) {
     const point = getCanvasPoint(pointerEvent);
     activeStroke.points.push(point);
-    drawStroke({
-      ...activeStroke,
-      points: [previousPoint, point]
-    });
+
+    if (!isEraserStroke) {
+      drawStroke({
+        ...activeStroke,
+        points: [previousPoint, point]
+      });
+    }
+
     previousPoint = point;
+  }
+
+  if (isEraserStroke) {
+    eraserPreviewPoint = activeStroke.points[activeStroke.points.length - 1];
+    redrawCanvas();
   }
 }
 
@@ -465,8 +506,16 @@ function finishStroke(event) {
     page.redoStrokes = [];
   }
 
+  const wasEraserStroke = activeStroke.kind === "eraser";
+
   activeStroke = null;
   lastPointerId = null;
+  eraserPreviewPoint = null;
+
+  if (wasEraserStroke) {
+    redrawCanvas();
+  }
+
   updateButtons();
   scheduleAutosave();
 }
